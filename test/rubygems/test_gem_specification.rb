@@ -33,7 +33,6 @@ has_rdoc: true
 Gem::Specification.new do |s|
   s.name = %q{keyedlist}
   s.version = %q{0.4.0}
-  s.has_rdoc = true
   s.summary = %q{A Hash which automatically computes keys.}
   s.files = [%q{lib/keyedlist.rb}]
   s.require_paths = [%q{lib}]
@@ -2216,9 +2215,9 @@ dependencies: []
     s1 = util_spec "a", "1"
     s2 = util_spec "b", "1"
 
-    assert_equal(-1, (s1 <=> s2))
-    assert_equal(0, (s1 <=> s1)) # rubocop:disable Lint/BinaryOperatorWithIdenticalOperands
-    assert_equal(1, (s2 <=> s1))
+    assert_equal(-1, s1 <=> s2)
+    assert_equal(0, s1 <=> s1) # rubocop:disable Lint/BinaryOperatorWithIdenticalOperands
+    assert_equal(1, s2 <=> s1)
   end
 
   def test_spaceship_platform
@@ -2227,18 +2226,18 @@ dependencies: []
       s.platform = Gem::Platform.new "x86-my_platform1"
     end
 
-    assert_equal(-1, (s1 <=> s2))
-    assert_equal(0, (s1 <=> s1)) # rubocop:disable Lint/BinaryOperatorWithIdenticalOperands
-    assert_equal(1, (s2 <=> s1))
+    assert_equal(-1, s1 <=> s2)
+    assert_equal(0, s1 <=> s1) # rubocop:disable Lint/BinaryOperatorWithIdenticalOperands
+    assert_equal(1, s2 <=> s1)
   end
 
   def test_spaceship_version
     s1 = util_spec "a", "1"
     s2 = util_spec "a", "2"
 
-    assert_equal(-1, (s1 <=> s2))
-    assert_equal(0, (s1 <=> s1)) # rubocop:disable Lint/BinaryOperatorWithIdenticalOperands
-    assert_equal(1, (s2 <=> s1))
+    assert_equal(-1, s1 <=> s2)
+    assert_equal(0, s1 <=> s1) # rubocop:disable Lint/BinaryOperatorWithIdenticalOperands
+    assert_equal(1, s2 <=> s1)
   end
 
   def test_spec_file
@@ -2671,27 +2670,7 @@ end
         @a1.validate
       end
 
-      expected = <<-EXPECTED
-#{w}:  prerelease dependency on b (>= 1.0.rc1) is not recommended
-#{w}:  prerelease dependency on c (>= 2.0.rc2, development) is not recommended
-#{w}:  open-ended dependency on i (>= 1.2) is not recommended
-  if i is semantically versioned, use:
-    add_runtime_dependency "i", "~> 1.2"
-#{w}:  open-ended dependency on j (>= 1.2.3) is not recommended
-  if j is semantically versioned, use:
-    add_runtime_dependency "j", "~> 1.2", ">= 1.2.3"
-#{w}:  open-ended dependency on k (> 1.2) is not recommended
-  if k is semantically versioned, use:
-    add_runtime_dependency "k", "~> 1.2", "> 1.2"
-#{w}:  open-ended dependency on l (> 1.2.3) is not recommended
-  if l is semantically versioned, use:
-    add_runtime_dependency "l", "~> 1.2", "> 1.2.3"
-#{w}:  open-ended dependency on o (>= 0) is not recommended
-  use a bounded requirement, such as "~> x.y"
-#{w}:  See https://guides.rubygems.org/specification-reference/ for help
-      EXPECTED
-
-      assert_equal expected, @ui.error, "warning"
+      assert_equal "", @ui.error, "warning"
     end
   end
 
