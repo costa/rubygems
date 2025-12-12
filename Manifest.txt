@@ -190,7 +190,6 @@ bundler/lib/bundler/settings.rb
 bundler/lib/bundler/settings/validator.rb
 bundler/lib/bundler/setup.rb
 bundler/lib/bundler/shared_helpers.rb
-bundler/lib/bundler/similarity_detector.rb
 bundler/lib/bundler/source.rb
 bundler/lib/bundler/source/gemspec.rb
 bundler/lib/bundler/source/git.rb
@@ -222,8 +221,12 @@ bundler/lib/bundler/templates/newgem/circleci/config.yml.tt
 bundler/lib/bundler/templates/newgem/exe/newgem.tt
 bundler/lib/bundler/templates/newgem/ext/newgem/Cargo.toml.tt
 bundler/lib/bundler/templates/newgem/ext/newgem/extconf-c.rb.tt
+bundler/lib/bundler/templates/newgem/ext/newgem/extconf-go.rb.tt
 bundler/lib/bundler/templates/newgem/ext/newgem/extconf-rust.rb.tt
+bundler/lib/bundler/templates/newgem/ext/newgem/go.mod.tt
+bundler/lib/bundler/templates/newgem/ext/newgem/newgem-go.c.tt
 bundler/lib/bundler/templates/newgem/ext/newgem/newgem.c.tt
+bundler/lib/bundler/templates/newgem/ext/newgem/newgem.go.tt
 bundler/lib/bundler/templates/newgem/ext/newgem/newgem.h.tt
 bundler/lib/bundler/templates/newgem/ext/newgem/src/lib.rs.tt
 bundler/lib/bundler/templates/newgem/github/workflows/main.yml.tt
@@ -349,10 +352,9 @@ bundler/lib/bundler/vlad.rb
 bundler/lib/bundler/worker.rb
 bundler/lib/bundler/yaml_serializer.rb
 doc/MAINTAINERS.txt
-doc/bundler/UPGRADING.md
+doc/UPGRADING.md
 doc/rubygems/CONTRIBUTING.md
 doc/rubygems/POLICIES.md
-doc/rubygems/UPGRADING.md
 exe/gem
 exe/update_rubygems
 hide_lib_for_update/note.txt

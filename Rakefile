@@ -94,7 +94,7 @@ RDoc::Task.new rdoc: "docs", clobber_rdoc: "clobber_docs" do |doc|
 
   rdoc_files = Rake::FileList.new %w[lib bundler/lib]
   rdoc_files.add %w[CHANGELOG.md LICENSE.txt MIT.txt CODE_OF_CONDUCT.md doc/rubygems/CONTRIBUTING.md
-                    doc/MAINTAINERS.txt Manifest.txt doc/rubygems/POLICIES.md README.md doc/rubygems/UPGRADING.md bundler/CHANGELOG.md
+                    doc/MAINTAINERS.txt Manifest.txt doc/rubygems/POLICIES.md README.md doc/UPGRADING.md bundler/CHANGELOG.md
                     doc/bundler/contributing/README.md bundler/LICENSE.md bundler/README.md
                     hide_lib_for_update/note.txt].map(&:freeze)
 
@@ -140,7 +140,7 @@ task rubocop: %w[rubocop:setup rubocop:run]
 # --------------------------------------------------------------------
 # Creating a release
 
-task prerelease: %w[clobber install_release_dependencies test bundler:build_metadata check_deprecations]
+task prerelease: %w[clobber install_release_dependencies bundler:build_metadata check_deprecations]
 task postrelease: %w[upload guides:publish blog:publish bundler:build_metadata:clean]
 
 desc "Check for deprecated methods with expired deprecation horizon"
@@ -181,12 +181,18 @@ task :generate_changelog, [:version] => [:install_release_dependencies] do |_t, 
   require_relative "tool/release"
 
   Release.for_rubygems(opts[:version]).cut_changelog!
+  Rake::Task["bundler:generate_changelog"].invoke(opts[:version])
 end
 
 desc "Release rubygems-#{v}"
 task release: :prerelease do
   Rake::Task["package"].invoke
-  sh "gem push pkg/rubygems-update-#{v}.gem"
+  puts "Tagging v#{v}"
+  sh "git", "tag", "v#{v}", noop: ENV["DRYRUN"]
+  puts "Pushing v#{v} to origin"
+  sh "git", "push", "origin", "v#{v}", noop: ENV["DRYRUN"]
+  puts "Pushing rubygems-update-#{v} to RubyGems.org"
+  sh "gem", "push", "pkg/rubygems-update-#{v}.gem", noop: ENV["DRYRUN"]
   Rake::Task["postrelease"].invoke
 end
 
@@ -248,40 +254,54 @@ desc "Upload release to S3"
 task :upload_to_s3 do
   require "aws-sdk-s3"
 
-  s3 = Aws::S3::Resource.new(region:"us-west-2")
+  client = Aws::S3::Client.new(region: "us-west-2")
+  transfer_manager = Aws::S3::TransferManager.new(client: client)
+
   %w[zip tgz].each do |ext|
-    obj = s3.bucket("oregon.production.s3.rubygems.org").object("rubygems/rubygems-#{v}.#{ext}")
-    obj.upload_file("pkg/rubygems-#{v}.#{ext}", acl: "public-read")
+    transfer_manager.upload_file(
+      "pkg/rubygems-#{v}.#{ext}",
+      bucket: "oregon.production.s3.rubygems.org",
+      key: "rubygems/rubygems-#{v}.#{ext}",
+      acl: "public-read"
+    )
   end
 end
 
 desc "Upload release to rubygems.org"
-task upload: %w[upload_to_github upload_to_s3]
+task :upload do
+  if ENV["DRYRUN"]
+    puts "DRYRUN mode: skipping upload to GitHub and S3"
+  else
+    Rake::Task["check_release_preparations"].invoke
+    Rake::Task["upload_to_github"].invoke
+    Rake::Task["upload_to_s3"].invoke
+  end
+end
 
-directory "../guides.rubygems.org" do
+directory "tmp/guides.rubygems.org" do
   sh "git", "clone",
      "https://github.com/rubygems/guides.git",
-     "../guides.rubygems.org"
+     "tmp/guides.rubygems.org"
 end
 
 namespace "guides" do
-  task "pull" => %w[../guides.rubygems.org] do
-    chdir "../guides.rubygems.org" do
+  task "pull" => %w[tmp/guides.rubygems.org] do
+    chdir "tmp/guides.rubygems.org" do
       sh "git", "pull"
     end
   end
 
-  task "update" => %w[../guides.rubygems.org] do
+  task "update" => %w[tmp/guides.rubygems.org] do
     lib_dir = File.join Dir.pwd, "lib"
 
-    chdir "../guides.rubygems.org" do
-      ruby "-I", lib_dir, "-S", "rake", "command_guide"
-      ruby "-I", lib_dir, "-S", "rake", "spec_guide"
+    chdir "tmp/guides.rubygems.org" do
+      ruby "-I", lib_dir, "-S", "rake", "-N", "command_guide"
+      ruby "-I", lib_dir, "-S", "rake", "-N", "spec_guide"
     end
   end
 
-  task "commit" => %w[../guides.rubygems.org] do
-    chdir "../guides.rubygems.org" do
+  task "commit" => %w[tmp/guides.rubygems.org] do
+    chdir "tmp/guides.rubygems.org" do
       sh "git", "diff", "--quiet"
     rescue StandardError
       sh "git", "commit", "command-reference.md", "specification-reference.md",
@@ -289,9 +309,13 @@ namespace "guides" do
     end
   end
 
-  task "push" => %w[../guides.rubygems.org] do
-    chdir "../guides.rubygems.org" do
-      sh "git", "push"
+  task "push" => %w[tmp/guides.rubygems.org] do
+    chdir "tmp/guides.rubygems.org" do
+      if ENV["DRYRUN"]
+        puts "DRYRUN mode: skipping push to guides repository"
+      else
+        sh "git", "push"
+      end
     end
   end
 
@@ -306,10 +330,10 @@ namespace "guides" do
   ]
 end
 
-directory "../blog.rubygems.org" do
+directory "tmp/blog.rubygems.org" do
   sh "git", "clone",
     "https://github.com/rubygems/rubygems.github.io.git",
-     "../blog.rubygems.org"
+     "tmp/blog.rubygems.org"
 end
 
 namespace "blog" do
@@ -318,7 +342,6 @@ namespace "blog" do
   checksums = ""
 
   task "checksums" => "package" do
-    require "net/http"
     Dir["pkg/*{tgz,zip,gem}"].each do |file|
       digest = OpenSSL::Digest::SHA256.file(file).hexdigest
       basename = File.basename(file)
@@ -326,30 +349,35 @@ namespace "blog" do
       checksums += "* #{basename}  \n"
       checksums += "  #{digest}\n"
 
-      release_url = URI("https://rubygems.org/#{file.end_with?("gem") ? "gems" : "rubygems"}/#{basename}")
-      response = Net::HTTP.get_response(release_url)
-
-      if response.is_a?(Net::HTTPSuccess)
-        released_digest = OpenSSL::Digest::SHA256.hexdigest(response.body)
-
-        if digest != released_digest
-          abort "Checksum of #{file} (#{digest}) doesn't match checksum of released package at #{release_url} (#{released_digest})"
-        end
-      elsif response.is_a?(Net::HTTPForbidden)
-        abort "#{basename} has not been yet uploaded to rubygems.org"
+      if ENV["DRYRUN"]
+        puts "DRYRUN mode: skipping checksum verification for #{file}"
       else
-        abort "Error fetching released package to verify checksums: #{response}\n#{response.body}"
+        release_url = URI("https://rubygems.org/#{file.end_with?("gem") ? "gems" : "rubygems"}/#{basename}")
+        require "net/http"
+        response = Net::HTTP.get_response(release_url)
+
+        if response.is_a?(Net::HTTPSuccess)
+          released_digest = OpenSSL::Digest::SHA256.hexdigest(response.body)
+
+          if digest != released_digest
+            abort "Checksum of #{file} (#{digest}) doesn't match checksum of released package at #{release_url} (#{released_digest})"
+          end
+        elsif response.is_a?(Net::HTTPForbidden)
+          abort "#{basename} has not been yet uploaded to rubygems.org"
+        else
+          abort "Error fetching released package to verify checksums: #{response}\n#{response.body}"
+        end
       end
     end
   end
 
-  task "pull" => %w[../blog.rubygems.org] do
-    chdir "../blog.rubygems.org" do
+  task "pull" => %w[tmp/blog.rubygems.org] do
+    chdir "tmp/blog.rubygems.org" do
       sh "git", "pull"
     end
   end
 
-  path = File.join "../blog.rubygems.org", post_page
+  path = File.join "tmp/blog.rubygems.org", post_page
 
   task "update" => [path]
 
@@ -358,7 +386,8 @@ namespace "blog" do
     email = `git config --get user.email`.strip
 
     require_relative "tool/changelog"
-    history = Changelog.for_rubygems(v.to_s)
+    rubygems_history = Changelog.for_rubygems(v.to_s)
+    bundler_history = Changelog.for_bundler(v.to_s)
 
     require "tempfile"
 
@@ -371,15 +400,28 @@ author: #{name}
 author_email: #{email}
 ---
 
-RubyGems #{v} includes #{history.change_types_for_blog}.
+RubyGems #{v} includes #{rubygems_history.change_types_for_blog} and Bundler #{v} includes #{bundler_history.change_types_for_blog}.
 
 To update to the latest RubyGems you can run:
 
-    gem update --system
+    gem update --system [--pre]
+
+To update to the latest Bundler you can run:
+
+    gem install bundler [--pre]
+    bundle update --bundler=#{v}
+
+## RubyGems Release Notes
+
+#{rubygems_history.release_notes_for_blog.join("\n")}
+
+## Bundler Release Notes
+
+#{bundler_history.release_notes_for_blog.join("\n")}
+
+## Manual Installation
 
 To install RubyGems by hand see the [Download RubyGems][download] page.
-
-#{history.release_notes_for_blog.join("\n")}
 
 SHA256 Checksums:
 
@@ -397,17 +439,21 @@ SHA256 Checksums:
     end
   end
 
-  task "commit" => %w[../blog.rubygems.org] do
-    chdir "../blog.rubygems.org" do
+  task "commit" => %w[tmp/blog.rubygems.org] do
+    chdir "tmp/blog.rubygems.org" do
       sh "git", "add", post_page
       sh "git", "commit", post_page,
          "-m", "Added #{v} release announcement"
     end
   end
 
-  task "push" => %w[../blog.rubygems.org] do
-    chdir "../blog.rubygems.org" do
-      sh "git", "push"
+  task "push" => %w[tmp/blog.rubygems.org] do
+    chdir "tmp/blog.rubygems.org" do
+      if ENV["DRYRUN"]
+        puts "DRYRUN mode: skipping push to blog repository"
+      else
+        sh "git", "push"
+      end
     end
   end
 
@@ -438,10 +484,9 @@ module Rubygems
       # Restore important documents
       %w[
         doc/MAINTAINERS.txt
-        doc/bundler/UPGRADING.md
+        doc/UPGRADING.md
         doc/rubygems/CONTRIBUTING.md
         doc/rubygems/POLICIES.md
-        doc/rubygems/UPGRADING.md
       ].each {|f| files << f }
 
       files.sort
@@ -574,6 +619,16 @@ task :check_rubygems_integration do
   sh("ruby -Ilib -S gem install psych:5.1.1 psych:5.1.2 rdoc && ruby -Ibundler/lib -rrdoc/task -rbundler/rubygems_ext -e1")
 end
 
+desc "Check release preparations"
+task :check_release_preparations do
+  %w[AWS_PROFILE GITHUB_RELEASE_PAT].each do |env_var|
+    if ENV[env_var].nil? || ENV[env_var] == ""
+      puts "Environment variable #{env_var} is not set"
+      raise unless ENV["DRYRUN"]
+    end
+  end
+end
+
 namespace :man do
   if RUBY_ENGINE == "jruby"
     task(:build) {}
@@ -657,8 +712,10 @@ namespace :bundler do
     Rake::Task["bundler:build_metadata:clean"].tap(&:reenable).invoke
   end
 
+  task "build" => ["bundler:release:check_ruby_version"]
+
   desc "Push to rubygems.org"
-  task "release:rubygem_push" => ["bundler:release:setup", "man:check", "bundler:build_metadata", "bundler:release:github"]
+  task "release:rubygem_push" => ["bundler:release:setup", "man:check", "bundler:build_metadata", "check_release_preparations", "bundler:release:github"]
 
   desc "Generates the Bundler changelog for a specific target version"
   task :generate_changelog, [:version] => [:install_release_dependencies] do |_t, opts|
@@ -676,6 +733,10 @@ namespace :bundler do
       gemspec_version = Bundler::GemHelper.gemspec.version
 
       Release.for_bundler(gemspec_version).create_for_github!
+    end
+
+    task :check_ruby_version do
+      raise "bundler:build need to released Ruby for using nokogiri" if RUBY_PATCHLEVEL.to_i < 0
     end
   end
 end
